@@ -152,6 +152,9 @@ if image_file is not None:
         if image_file.mode == 'RGBA':  # Check for transparency (RGBA)
             for y in range(imgHeight):
                 for x in range(imgWidth):
+                    st.progress(
+                        (x / imgWidth) * 100,
+                        f"Placing Lamps at {x},{y} ({x / imgWidth * 100:.2f}%)")
                     r, g, b, a = pixels[x, y]  # Get RGBA values
                     if a == 0:  # Transparent pixel
                         continue  # Skip this pixel, treat it as background
