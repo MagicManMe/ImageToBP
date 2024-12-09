@@ -5,7 +5,7 @@ import zlib as z
 import base64 as b
 
 #st.title('Image to Lamps Blueprint Maker')
-st.title('Testing2')
+st.title('Testing')
 
 #Image upload, rest of program only runs if an image has been uploaded
 image_file = st.file_uploader('Upload Image', type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=False, key='test')
@@ -152,9 +152,6 @@ if image_file is not None:
         if image_file.mode == 'RGBA':  # Check for transparency (RGBA)
             for y in range(imgHeight):
                 for x in range(imgWidth):
-                    st.progress(
-                        (x / imgWidth) * 100,
-                        f"Placing Lamps at {x},{y} ({x / imgWidth * 100:.2f}%)")
                     r, g, b, a = pixels[x, y]  # Get RGBA values
                     if a == 0:  # Transparent pixel
                         continue  # Skip this pixel, treat it as background
