@@ -138,10 +138,17 @@ if image_file is not None:
             self.grid[x][y] = Substation(x, y, entity_number, quality)
             blueprint['blueprint']['entities'].append(self.grid[x][y].jsonData)
 
+            # Safely check and remove surrounding grid cells
             try:
-                self.grid[x + 1].pop(y)
-                self.grid[x + 1].pop(y + 1)
-                self.grid[x].pop(y + 1)
+                # Check grid boundaries before attempting to remove cells
+                if x + 1 < len(self.grid):
+                    if y < len(self.grid[x + 1]):
+                        self.grid[x + 1][y] = None
+                    if y + 1 < len(self.grid[x + 1]):
+                        self.grid[x + 1][y + 1] = None
+
+                if y + 1 < len(self.grid[x]):
+                    self.grid[x][y + 1] = None
             except IndexError:
                 print("Out of Range, skipping placement")
 
@@ -152,6 +159,7 @@ if image_file is not None:
         if image_file.mode == 'RGBA':  # Check for transparency (RGBA)
             for y in range(imgHeight):
                 for x in range(imgWidth):
+                    st.progress(x / imgWidth, 'Test')
                     r, g, b, a = pixels[x, y]  # Get RGBA values
                     if a == 0:  # Transparent pixel
                         continue  # Skip this pixel, treat it as background
