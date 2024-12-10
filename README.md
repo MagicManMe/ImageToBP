@@ -1,5 +1,7 @@
 # Factorio Image to Lamp Blueprint
 
+[Try it yourself!](http://www.magicman.dev)
+
 This is a python script using streamlit (converted to stlite to be a static webpage for github pages) to take any image and convert(and optionally resize) it into a factorio lamp blueprint.
 It reads the RGB (or RGBA for png) of each pixel and assigns those colors to a lamp and places it accordingly in a factorio blueprint.
 It also places medium power poles or substations of any quality to power the lamps.
