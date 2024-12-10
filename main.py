@@ -5,7 +5,7 @@ import zlib as z
 import base64 as b
 
 st.set_page_config(page_title='Image to Blueprint')
-st.title('Image to Lamps Blueprint Maker')
+st.title('Image to Lamps Blueprint Maker:blue_book:')
 #st.title('Testing')
 
 #Image upload, rest of program only runs if an image has been uploaded
