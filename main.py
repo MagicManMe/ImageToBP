@@ -4,11 +4,25 @@ import json
 import zlib as z
 import base64 as b
 
-st.set_page_config(page_title='Image to Blueprint')
+st.set_page_config(page_title='Image to Blueprint', initial_sidebar_state='collapsed')
 st.title('Image to Lamps Blueprint Maker')
 #st.title('Testing')
 
 st.link_button('Source Code', 'https://github.com/MagicManMe/ImageToBP')
+
+#Remove useless side options and deploy button
+st.markdown("""
+    <style>
+        .reportview-container {
+            margin-top: -2em;
+        }
+        #MainMenu {visibility: hidden;}
+        .stAppDeployButton {display:none;}
+        footer {visibility: hidden;}
+        #stDecoration {display:none;}
+    </style>
+""", unsafe_allow_html=True)
+
 
 #Image upload, rest of program only runs if an image has been uploaded
 image_file = st.file_uploader('Upload Image', type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=False, key='test')
@@ -162,7 +176,6 @@ if image_file is not None:
         if image_file.mode == 'RGBA':  # Check for transparency (RGBA)
             for y in range(imgHeight):
                 for x in range(imgWidth):
-                    st.progress(x / imgWidth, 'Test')
                     r, g, b, a = pixels[x, y]  # Get RGBA values
                     if a == 0:  # Transparent pixel
                         continue  # Skip this pixel, treat it as background
