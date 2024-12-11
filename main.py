@@ -25,7 +25,8 @@ st.markdown("""
 
 
 #Image upload, rest of program only runs if an image has been uploaded
-image_file = st.file_uploader('Upload Image (Max Dimensions 1000x1000)', type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=False, key='test')
+image_file = st.file_uploader("Upload Image (Max Dimensions: 10000x10000)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False, key='test')
+st.write("If using an image larger than 128x128 it is HIGHLY RECOMMENDED to resize it after uploading")
 
 if image_file is not None:
     image_name = image_file.name.split('.')[0]
@@ -48,10 +49,10 @@ if image_file is not None:
     #If image is uploaded, display its dimensions and allow change
     image_dimensions_section = st.columns((1, .2, 1, 1))
     with image_dimensions_section[0]:
-        imgHeight = st.number_input('Height', min_value=1, max_value=1000, value=image_file.height)
+        imgHeight = st.number_input('Height', min_value=1, max_value=10000, value=image_file.height)
 
         with image_dimensions_section[2]:
-            imgWidth = st.number_input('Width', min_value=1, max_value=1000, value=image_file.width)
+            imgWidth = st.number_input('Width', min_value=1, max_value=10000, value=image_file.width)
 
     if imgHeight != image_file.height or imgWidth != image_file.width:
         image_file = image_file.resize((imgWidth, imgHeight))
