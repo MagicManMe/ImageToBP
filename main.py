@@ -5,8 +5,10 @@ import zlib as z
 import base64 as b
 
 st.set_page_config(page_title='Image to Blueprint')
-st.title('Image to Lamps Blueprint Maker:blue_book:')
+st.title('Image to Lamps Blueprint Maker')
 #st.title('Testing')
+
+st.link_button('Source Code', 'https://github.com/MagicManMe/ImageToBP')
 
 #Image upload, rest of program only runs if an image has been uploaded
 image_file = st.file_uploader('Upload Image', type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=False, key='test')
