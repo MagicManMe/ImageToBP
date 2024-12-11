@@ -69,7 +69,8 @@ if image_file is not None:
 
 
 
-#Literally just bpcreate but in the main file because it doesn't work otherwise for some fucking reason
+#Literally just bpcreate.py but in the main file because it doesn't work otherwise for some fucking reason
+#This whole section was previously its own file to make it more readable but I kept running into issues sharing variables between the 2...so now it lives here
 
     # Various variables used
     poleObjList = []
@@ -303,6 +304,7 @@ if image_file is not None:
         return "0" + b.b64encode(
             z.compress(data.encode("utf-8"), 9)
         ).decode("utf-8")
+#END OF original BPCREATE
 
 
     #Run the bp creation program once user submits all options
