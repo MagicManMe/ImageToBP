@@ -47,8 +47,6 @@ if image_file is not None:
         st.write(f'Blank color is {blank_color}')
 
     #If image is uploaded, display its dimensions and allow change
-    if image_file.width or image_file.height > 128:
-        st.warning("Images not resized to 128x128 or smaller may take VERY LONG to generate a BP and will most likely crash")
     image_dimensions_section = st.columns((1, .2, 1, 1))
     with image_dimensions_section[0]:
         imgHeight = st.number_input('Height', min_value=1, max_value=10000, value=image_file.height)
@@ -59,6 +57,9 @@ if image_file is not None:
     if imgHeight != image_file.height or imgWidth != image_file.width:
         image_file = image_file.resize((imgWidth, imgHeight))
         st.image(image_file, caption='Resized Image.')
+
+    if image_file.width > 128 or image_file.height > 128:
+        st.warning("Images not resized to 128x128 or smaller may take VERY LONG to generate a BP and will most likely crash")
 
     #Selection columns for quality and powerpole_type
     radios = st.columns(2, gap='small')
