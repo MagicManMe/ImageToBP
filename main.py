@@ -172,7 +172,7 @@ if image_file is not None:
                 if y + 1 < len(self.grid[x]):
                     self.grid[x][y + 1] = None
             except IndexError:
-                print("Out of Range, skipping placement")
+                st.write(f"Out of Range, skipping placement at X:{x} Y:{y} Entity Number:{entity_number}")
 
 
     def placelamps():
