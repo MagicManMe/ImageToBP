@@ -274,6 +274,7 @@ if image_file is not None:
     def placePowerPoles():
         global coverage
         if powerpole_type == 'Medium Power Pole':
+            # Technically this doesn't need to be here (just the function call) because defined above, leaving for now
             if quality == "Normal":
                 coverage = 7
             elif quality == "Uncommon":
@@ -287,6 +288,7 @@ if image_file is not None:
             placeMediumPoles(coverage)
 
         elif powerpole_type == 'Substation':
+            # Technically this doesn't need to be here (just the function call) because defined above, leaving for now
             if quality == "Normal":
                 coverage = 18
             elif quality == "Uncommon":
