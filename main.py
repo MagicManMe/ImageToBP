@@ -4,6 +4,8 @@ import json
 import zlib as z
 import base64 as b
 
+from numpy.ma.core import remainder
+
 st.set_page_config(page_title='Image to Blueprint', initial_sidebar_state='collapsed')
 st.title('Image to Lamps Blueprint Maker')
 #st.title('Testing')
@@ -49,10 +51,10 @@ if image_file is not None:
     #If image is uploaded, display its dimensions and allow change
     image_dimensions_section = st.columns((1, .2, 1, 1))
     with image_dimensions_section[0]:
-        imgHeight = st.number_input('Height', min_value=1, max_value=10000, value=image_file.height)
+        imgWidth = st.number_input('Width', min_value=1, max_value=10000, value=image_file.width)
 
         with image_dimensions_section[2]:
-            imgWidth = st.number_input('Width', min_value=1, max_value=10000, value=image_file.width)
+            imgHeight = st.number_input('Height', min_value=1, max_value=10000, value=image_file.height)
 
     if imgHeight != image_file.height or imgWidth != image_file.width:
         image_file = image_file.resize((imgWidth, imgHeight))
@@ -70,7 +72,29 @@ if image_file is not None:
         # Select quality
         quality = st.radio('Select Quality', ('Normal', 'Uncommon', 'Rare', 'Epic', 'Legendary'), index=0)
 
-
+    global coverage
+    if powerpole_type == 'Medium Power Pole':
+        if quality == "Normal":
+            coverage = 7
+        elif quality == "Uncommon":
+            coverage = 9
+        elif quality == "Rare":
+            coverage = 11
+        elif quality == "Epic":
+            coverage = 13
+        elif quality == "Legendary":
+            coverage = 17
+    elif powerpole_type == 'Substation':
+        if quality == "Normal":
+            coverage = 18
+        elif quality == "Uncommon":
+            coverage = 20
+        elif quality == "Rare":
+            coverage = 22
+        elif quality == "Epic":
+            coverage = 24
+        elif quality == "Legendary":
+            coverage = 28
 
 
 #Literally just bpcreate.py but in the main file because it doesn't work otherwise for some fucking reason
@@ -289,7 +313,11 @@ if image_file is not None:
 
     def createBP():
         global imgGrid
-        imgGrid = GridObj(rows=image_file.height, cols=image_file.width)
+        remainder_x = imgWidth % coverage
+        remainder_y = imgHeight % coverage
+
+        imgGrid = GridObj(rows=image_file.height+remainder_y, cols=image_file.width+remainder_x)
+
 
         placelamps()
         placePowerPoles()
