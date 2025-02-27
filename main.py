@@ -41,10 +41,15 @@ if image_file is not None:
     if image_file.format == 'PNG':
         image_file = image_file.convert('RGBA')
     else:
-        image_file = image_file.convert('RGB')
-        blank_color = st.color_picker('Pick a color for the script to skip lamp placement (white appears as grey in the color picker and is the default to ignore)', '#FFFFFF')
-        blank_color = tuple(int(blank_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-        st.write(f'Blank color is {blank_color}')
+        #test to enable toggling blank color
+        useBlank = st.checkbox('Do you want to pick a color to ignore as the background?')
+        if not useBlank:
+            image_file = image_file.convert('RGBA')
+        else:
+            image_file = image_file.convert('RGB')
+            blank_color = st.color_picker('Pick a color for the script to skip lamp placement (white appears as grey in the color picker and is the default to ignore)', '#FFFFFF')
+            blank_color = tuple(int(blank_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+            st.write(f'Blank color is {blank_color}')
 
     #If image is uploaded, display its dimensions and allow change
     image_dimensions_section = st.columns((1, .2, 1, 1))
