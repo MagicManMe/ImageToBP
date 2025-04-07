@@ -204,51 +204,242 @@ if image_file is not None:
     def placeMediumPoles(coverage):
         global entNum
         global poleList
-
-        for l in range(0, len(imgGrid.grid), coverage):
-            for w in range(0, len(imgGrid.grid[l]), coverage):
-                imgGrid.addPowerPole(l, w, entNum, quality)
-                #print(f"Added power pole at {l},{w},{entNum}")
-                poleObjList.append(imgGrid.grid[l][w])
+        
+        # Get all lamp positions
+        lamp_positions = []
+        for y in range(len(imgGrid.grid[0])):
+            for x in range(len(imgGrid.grid)):
+                if imgGrid.grid[x][y] and isinstance(imgGrid.grid[x][y], Lamp):
+                    lamp_positions.append((x, y))
+        
+        if not lamp_positions:
+            return
+        
+        # Keep track of which lamps are covered
+        covered_lamps = set()
+        
+        while len(covered_lamps) < len(lamp_positions):
+            best_pos = None
+            max_new_coverage = 0
+            newly_covered = set()
+            best_pos_has_lamp = True  # Track if best position has a lamp
+            
+            # First try positions that don't have lamps
+            # Include positions between grid points for better coverage
+            step = max(1, coverage//4)  # Smaller step size for finer granularity
+            for x in range(0, len(imgGrid.grid), step):
+                for y in range(0, len(imgGrid.grid[0]), step):
+                    # Skip if there's a lamp here
+                    if imgGrid.grid[x][y] and isinstance(imgGrid.grid[x][y], Lamp):
+                        continue
+                        
+                    # Find lamps that would be covered by a pole at this position
+                    curr_covered = set()
+                    for lx, ly in lamp_positions:
+                        if (lx, ly) not in covered_lamps:
+                            # Check if lamp is within coverage radius
+                            if abs(lx - x) <= coverage//2 and abs(ly - y) <= coverage//2:
+                                curr_covered.add((lx, ly))
+                    
+                    # Update best position if this covers more new lamps
+                    # or if it covers the same number but doesn't replace a lamp
+                    if len(curr_covered) > max_new_coverage or \
+                       (len(curr_covered) == max_new_coverage and best_pos_has_lamp):
+                        max_new_coverage = len(curr_covered)
+                        best_pos = (x, y)
+                        newly_covered = curr_covered
+                        best_pos_has_lamp = False
+            
+            # If we couldn't find a good empty position, try positions with lamps
+            if max_new_coverage == 0:
+                for lx, ly in lamp_positions:
+                    if (lx, ly) not in covered_lamps:
+                        curr_covered = set()
+                        for olx, oly in lamp_positions:
+                            if (olx, oly) not in covered_lamps:
+                                if abs(olx - lx) <= coverage//2 and abs(oly - ly) <= coverage//2:
+                                    curr_covered.add((olx, oly))
+                        
+                        if len(curr_covered) > max_new_coverage:
+                            max_new_coverage = len(curr_covered)
+                            best_pos = (lx, ly)
+                            newly_covered = curr_covered
+                            best_pos_has_lamp = True
+            
+            # If we found a position that covers new lamps, place a pole there
+            if best_pos and newly_covered:
+                x, y = best_pos
+                imgGrid.addPowerPole(x, y, entNum, quality)
+                poleObjList.append(imgGrid.grid[x][y])
                 poleList.append(entNum)
                 entNum += 1
+                covered_lamps.update(newly_covered)
+            else:
+                # If we can't cover any more lamps, break to avoid infinite loop
+                break
 
 
     def placesubstations(coverage):
         global entNum
         global poleList
-
-        for l in range(0, len(imgGrid.grid), coverage):
-            for w in range(0, len(imgGrid.grid[l]), coverage):
-                imgGrid.addSubstation(l, w, entNum, quality)
-                #print(f"Added substation at {l},{w},{entNum}")
-                poleObjList.append(imgGrid.grid[l][w])
+        
+        # Get all lamp positions
+        lamp_positions = []
+        for y in range(len(imgGrid.grid[0])):
+            for x in range(len(imgGrid.grid)):
+                if imgGrid.grid[x][y] and isinstance(imgGrid.grid[x][y], Lamp):
+                    lamp_positions.append((x, y))
+        
+        if not lamp_positions:
+            return
+        
+        # Keep track of which lamps are covered
+        covered_lamps = set()
+        # Keep track of occupied 2x2 spaces
+        occupied_spaces = set()
+        
+        while len(covered_lamps) < len(lamp_positions):
+            best_pos = None
+            max_new_coverage = 0
+            newly_covered = set()
+            best_pos_has_lamp = True  # Track if best position has a lamp
+            
+            # First try positions that don't have lamps
+            # Include positions between grid points for better coverage
+            step = max(1, coverage//4)  # Smaller step size for finer granularity
+            for x in range(0, len(imgGrid.grid) - 1, step):  # -1 to account for 2x2 size
+                for y in range(0, len(imgGrid.grid[0]) - 1, step):  # -1 to account for 2x2 size
+                    # Check if any of the 2x2 space is occupied by a lamp or another substation
+                    space_occupied = False
+                    for dx in range(2):
+                        for dy in range(2):
+                            check_x, check_y = x + dx, y + dy
+                            if (check_x, check_y) in occupied_spaces or \
+                               (imgGrid.grid[check_x][check_y] and isinstance(imgGrid.grid[check_x][check_y], (Lamp, Substation))):
+                                space_occupied = True
+                                break
+                        if space_occupied:
+                            break
+                    if space_occupied:
+                        continue
+                        
+                    # Find lamps that would be covered by a substation at this position
+                    curr_covered = set()
+                    for lx, ly in lamp_positions:
+                        if (lx, ly) not in covered_lamps:
+                            # Check if lamp is within coverage radius from the center of the substation
+                            center_x, center_y = x + 0.5, y + 0.5
+                            if abs(lx - center_x) <= coverage//2 and abs(ly - center_y) <= coverage//2:
+                                curr_covered.add((lx, ly))
+                    
+                    # Update best position if this covers more new lamps
+                    if len(curr_covered) > max_new_coverage:
+                        max_new_coverage = len(curr_covered)
+                        best_pos = (x, y)
+                        newly_covered = curr_covered
+                        best_pos_has_lamp = False
+            
+            # If we couldn't find a good empty position, try positions near lamps
+            # but still ensuring 2x2 space is available
+            if max_new_coverage == 0:
+                for lx, ly in lamp_positions:
+                    if (lx, ly) not in covered_lamps:
+                        # Try positions around this lamp
+                        for dx in [-1, 0]:
+                            for dy in [-1, 0]:
+                                x, y = lx + dx, ly + dy
+                                if x < 0 or y < 0 or x >= len(imgGrid.grid) - 1 or y >= len(imgGrid.grid[0]) - 1:
+                                    continue
+                                
+                                # Check if 2x2 space is available
+                                space_occupied = False
+                                for cdx in range(2):
+                                    for cdy in range(2):
+                                        check_x, check_y = x + cdx, y + cdy
+                                        if (check_x, check_y) in occupied_spaces or \
+                                           (imgGrid.grid[check_x][check_y] and isinstance(imgGrid.grid[check_x][check_y], (Lamp, Substation))):
+                                            space_occupied = True
+                                            break
+                                    if space_occupied:
+                                        break
+                                if space_occupied:
+                                    continue
+                                
+                                curr_covered = set()
+                                center_x, center_y = x + 0.5, y + 0.5
+                                for olx, oly in lamp_positions:
+                                    if (olx, oly) not in covered_lamps:
+                                        if abs(olx - center_x) <= coverage//2 and abs(oly - center_y) <= coverage//2:
+                                            curr_covered.add((olx, oly))
+                                
+                                if len(curr_covered) > max_new_coverage:
+                                    max_new_coverage = len(curr_covered)
+                                    best_pos = (x, y)
+                                    newly_covered = curr_covered
+            
+            # If we found a position that covers new lamps, place a substation there
+            if best_pos and newly_covered:
+                x, y = best_pos
+                imgGrid.addSubstation(x, y, entNum, quality)
+                poleObjList.append(imgGrid.grid[x][y])
                 poleList.append(entNum)
                 entNum += 1
+                # Mark the 2x2 space as occupied
+                for dx in range(2):
+                    for dy in range(2):
+                        occupied_spaces.add((x + dx, y + dy))
+                covered_lamps.update(newly_covered)
+            else:
+                # If we can't cover any more lamps, break to avoid infinite loop
+                break
 
 
     def makewires4():
         global blueprint
         global poleObjList
 
-        max_distance = coverage  # Define the maximum range based on pole type and quality.
+        max_distance = coverage  # Define the maximum range based on pole type and quality
 
-        # Iterate over all poles to find connections
-        for i, pole in enumerate(poleObjList):
+        # Create a dictionary to store poles by their coordinates
+        pole_by_pos = {(pole.x, pole.y): pole for pole in poleObjList if pole is not None}
+
+        # For each pole, find its nearest neighbors in each direction
+        for pole in poleObjList:
             if pole is None:
                 continue
-            for j, other_pole in enumerate(poleObjList):
-                if i == j or other_pole is None:
-                    continue
 
-                # Calculate Manhattan distance between poles
-                distance = abs(pole.x - other_pole.x) + abs(pole.y - other_pole.y)
+            # Look for nearest pole in each direction (up, down, left, right)
+            directions = [
+                (0, -1, 'up'),   # up
+                (0, 1, 'down'),  # down
+                (-1, 0, 'left'), # left
+                (1, 0, 'right')  # right
+            ]
 
-                # Ensure the poles are aligned (horizontal or vertical) and within range
-                if distance <= max_distance and (pole.x == other_pole.x or pole.y == other_pole.y):
-                    blueprint['blueprint']['wires'].append([
-                        pole.entity_number, 5, other_pole.entity_number, 5
-                    ])
+            for dx, dy, direction in directions:
+                # Start from the pole's position and move in the current direction
+                x, y = pole.x, pole.y
+                nearest_dist = float('inf')
+                nearest_pole = None
+
+                # Look for the nearest pole in this direction
+                for dist in range(1, max_distance + 1):
+                    x += dx
+                    y += dy
+                    if (x, y) in pole_by_pos:
+                        nearest_pole = pole_by_pos[(x, y)]
+                        nearest_dist = dist
+                        break
+
+                # If we found a pole in this direction and it's within range, connect to it
+                if nearest_pole and nearest_dist <= max_distance:
+                    # Add wire connection
+                    # Only add the connection if we haven't already added it
+                    # (avoid duplicate connections)
+                    if pole.entity_number < nearest_pole.entity_number:
+                        blueprint['blueprint']['wires'].append([
+                            pole.entity_number, 5, nearest_pole.entity_number, 5
+                        ])
 
 
     # Places powerpoles and assigns coverage value based on selections made
