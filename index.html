@@ -320,10 +320,16 @@ function computeMask(data, w, h, isPng, blank, tol) {
   return mask;
 }
 
-// Lay poles on a coarse grid. The image is divided into S×S "cells"; if a cell
-// contains at least one lamp, we put one pole near its centre to power it.
-// Returns a Map keyed by "col,row" cell coordinate -> [x,y] pixel position of
-// the pole, plus the grid dimensions (used later for bridging).
+// Cell coordinates (kx, ky) are packed into a single integer key as
+// `ky * nCols + kx` — the same row-major flattening used to index the mask.
+// One unique integer per cell lets us use plain Map/Set lookups (which compare
+// numbers by value) without building/parsing "kx,ky" strings. Decode with
+// `kx = key % nCols; ky = (key - kx) / nCols`.
+
+// Lay poles on a coarse grid. The image is divided into spacing×spacing "cells";
+// if a cell contains at least one lamp, we put one pole near its centre to power
+// it. Returns a Map keyed by packed cell coordinate -> [x,y] pixel position of
+// the pole, plus the grid dimensions (used later for bridging and decoding keys).
 function placePoles(mask, w, h, spacing) {
   const half = spacing >> 1;                  // half a cell, to find its centre
   const nCols = Math.ceil(w / spacing);
@@ -349,7 +355,7 @@ function placePoles(mask, w, h, spacing) {
           if (mask[y * w + x]) { hasLamp = true; break; }
         }
       }
-      if (hasLamp) poles.set(kx + "," + ky, [cx, cy]);
+      if (hasLamp) poles.set(ky * nCols + kx, [cx, cy]);
     }
   }
   return { poles, nCols, nRows };
@@ -358,9 +364,12 @@ function placePoles(mask, w, h, spacing) {
 // Group the occupied pole cells into connected "islands". Two cells are
 // connected if they're 4-directionally adjacent on the grid (poles in
 // neighbouring cells reach each other and form one electric network).
-// Returns an array of Sets, one Set of "col,row" keys per island. Standard
+// Returns an array of Sets, one Set of packed cell keys per island. Standard
 // flood fill / connected-components using an explicit stack (DFS).
-function components(occupied) {
+// Needs nCols/nRows to decode keys and reject neighbours that fall off the grid
+// (with integer keys, an out-of-range column would otherwise wrap to a real
+// cell on the next row).
+function components(occupied, nCols, nRows) {
   const seen = new Set();
   const comps = [];
 
@@ -373,10 +382,12 @@ function components(occupied) {
     while (stack.length) {
       const cur = stack.pop();
       comp.add(cur);
-      const [cx, cy] = cur.split(",").map(Number);
+      const cx = cur % nCols;
+      const cy = (cur - cx) / nCols;
       const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
       for (const [nx, ny] of neighbors) {
-        const key = nx + "," + ny;
+        if (nx < 0 || nx >= nCols || ny < 0 || ny >= nRows) continue;   // off the grid
+        const key = ny * nCols + nx;
         if (occupied.has(key) && !seen.has(key)) {
           seen.add(key);
           stack.push(key);
@@ -420,7 +431,7 @@ class Deque {
 function addBridgePoles(poles, nCols, nRows, spacing, w, h) {
   const half = spacing >> 1;
   const occupied = new Set(poles.keys());       // cells that currently hold a pole
-  const comps = components(occupied);            // the islands to stitch together
+  const comps = components(occupied, nCols, nRows); // the islands to stitch together
   if (comps.length <= 1) return 0;               // already one network, nothing to do
 
   // compOf: cell key -> index of the island it belongs to.
@@ -435,7 +446,8 @@ function addBridgePoles(poles, nCols, nRows, spacing, w, h) {
 
   // Pixel position of a cell's centre (clamped to image bounds).
   const center = (key) => {
-    const [kx, ky] = key.split(",").map(Number);
+    const kx = key % nCols;
+    const ky = (key - kx) / nCols;
     return [Math.min(kx * spacing + half, w - 1), Math.min(ky * spacing + half, h - 1)];
   };
 
@@ -464,11 +476,12 @@ function addBridgePoles(poles, nCols, nRows, spacing, w, h) {
         target = cur;
         break;
       }
-      const [cx, cy] = cur.split(",").map(Number);
+      const cx = cur % nCols;
+      const cy = (cur - cx) / nCols;
       const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
       for (const [nx, ny] of neighbors) {
         if (nx < 0 || nx >= nCols || ny < 0 || ny >= nRows) continue;   // off the grid
-        const key = nx + "," + ny;
+        const key = ny * nCols + nx;
         const weight = occupied.has(key) ? 0 : 1;
         const newDist = dist.get(cur) + weight;
         const known = dist.has(key) ? dist.get(key) : Infinity;
@@ -572,13 +585,17 @@ function buildBlueprint(mask, data, w, h, ptype, quality, label, connect) {
   // Wire each pole to its right and down neighbour (left/up are covered by those
   // neighbours' own right/down links, so every adjacent pair is wired once).
   // A wire is [poleA id, connector, poleB id, connector].
+  // Right neighbour = key + 1, down neighbour = key + nCols. The bounds checks
+  // matter: without `kx + 1 < nCols`, a right-edge cell's `key + 1` would wrap
+  // to the first cell of the next row and wire two poles that aren't adjacent.
   const wires = [];
   for (const [key, id] of poleId) {
-    const [kx, ky] = key.split(",").map(Number);
-    const neighbors = [(kx + 1) + "," + ky, kx + "," + (ky + 1)];
-    for (const neighbor of neighbors) {
-      if (poleId.has(neighbor)) wires.push([id, COPPER, poleId.get(neighbor), COPPER]);
-    }
+    const kx = key % nCols;
+    const ky = (key - kx) / nCols;
+    if (kx + 1 < nCols && poleId.has(key + 1))
+      wires.push([id, COPPER, poleId.get(key + 1), COPPER]);
+    if (ky + 1 < nRows && poleId.has(key + nCols))
+      wires.push([id, COPPER, poleId.get(key + nCols), COPPER]);
   }
 
   const bp = { blueprint: { entities, wires, item: "blueprint", version: BP_VERSION, label } };
