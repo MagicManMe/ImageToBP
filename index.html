@@ -276,7 +276,7 @@
    =========================================================================== */
 
 // Supply area (in tiles) of each pole type at each quality. We place one pole
-// every S tiles in both x and y so its coverage tiles the image. Higher
+// every `spacing` tiles in both x and y so its coverage tiles the image. Higher
 // quality = larger range = fewer poles needed.
 const SUPPLY = {
   medium:     { normal:7, uncommon:9, rare:11, epic:13, legendary:17 },
@@ -299,15 +299,22 @@ const COPPER = 5, BP_VERSION = 281479276259328;
 //   - JPEG with a blank colour: pixels close to that colour become empty. "Close"
 //     means each of R/G/B is within `tol` of the blank colour (Chebyshev distance).
 function computeMask(data, w, h, isPng, blank, tol) {
+  // Uint8Array (not a plain array) keeps this compact and fast for big images.
   const mask = new Uint8Array(w * h);
-  // p walks pixels (0..w*h), i walks bytes (4 per pixel) in lockstep.
-  for (let p = 0, i = 0; p < w * h; p++, i += 4) {
-    if (isPng) mask[p] = data[i + 3] !== 0 ? 1 : 0;
-    else if (!blank) mask[p] = 1;
-    else {
+  // pixel walks pixels (0..w*h); byte walks the RGBA bytes (4 per pixel) in lockstep.
+  for (let pixel = 0, byte = 0; pixel < w * h; pixel++, byte += 4) {
+    if (isPng) {
+      mask[pixel] = data[byte + 3] !== 0 ? 1 : 0;
+    } else if (!blank) {
+      mask[pixel] = 1;
+    } else {
       // Largest per-channel difference from the blank colour.
-      const d = Math.max(Math.abs(data[i]-blank[0]), Math.abs(data[i+1]-blank[1]), Math.abs(data[i+2]-blank[2]));
-      mask[p] = d <= tol ? 0 : 1;
+      const diff = Math.max(
+        Math.abs(data[byte]     - blank[0]),
+        Math.abs(data[byte + 1] - blank[1]),
+        Math.abs(data[byte + 2] - blank[2])
+      );
+      mask[pixel] = diff <= tol ? 0 : 1;
     }
   }
   return mask;
@@ -317,19 +324,32 @@ function computeMask(data, w, h, isPng, blank, tol) {
 // contains at least one lamp, we put one pole near its centre to power it.
 // Returns a Map keyed by "col,row" cell coordinate -> [x,y] pixel position of
 // the pole, plus the grid dimensions (used later for bridging).
-function placePoles(mask, w, h, S) {
-  const half = S >> 1, nCols = Math.ceil(w / S), nRows = Math.ceil(h / S);
+function placePoles(mask, w, h, spacing) {
+  const half = spacing >> 1;                  // half a cell, to find its centre
+  const nCols = Math.ceil(w / spacing);
+  const nRows = Math.ceil(h / spacing);
   const poles = new Map();
+
   for (let kx = 0; kx < nCols; kx++) {
-    // x0..x1 = this column's pixel span; cx = pole's x (cell centre, clamped to image).
-    const x0 = kx*S, x1 = Math.min(x0+S, w), cx = Math.min(x0+half, w-1);
+    // This column's pixel span [x0, x1) and the pole's x (cell centre, clamped to image).
+    const x0 = kx * spacing;
+    const x1 = Math.min(x0 + spacing, w);
+    const cx = Math.min(x0 + half, w - 1);
+
     for (let ky = 0; ky < nRows; ky++) {
-      const y0 = ky*S, y1 = Math.min(y0+S, h), cy = Math.min(y0+half, h-1);
-      // Scan the cell; bail out as soon as any lamp pixel is found.
-      let has = false;
-      for (let y = y0; y < y1 && !has; y++)
-        for (let x = x0; x < x1; x++) if (mask[y*w+x]) { has = true; break; }
-      if (has) poles.set(kx+","+ky, [cx, cy]);
+      const y0 = ky * spacing;
+      const y1 = Math.min(y0 + spacing, h);
+      const cy = Math.min(y0 + half, h - 1);
+
+      // Scan the cell; bail out as soon as any lamp pixel is found (early exit
+      // matters — most cells are decided by their first lamp).
+      let hasLamp = false;
+      for (let y = y0; y < y1 && !hasLamp; y++) {
+        for (let x = x0; x < x1; x++) {
+          if (mask[y * w + x]) { hasLamp = true; break; }
+        }
+      }
+      if (hasLamp) poles.set(kx + "," + ky, [cx, cy]);
     }
   }
   return { poles, nCols, nRows };
@@ -341,16 +361,26 @@ function placePoles(mask, w, h, S) {
 // Returns an array of Sets, one Set of "col,row" keys per island. Standard
 // flood fill / connected-components using an explicit stack (DFS).
 function components(occupied) {
-  const seen = new Set(), comps = [];
+  const seen = new Set();
+  const comps = [];
+
   for (const cell of occupied) {
     if (seen.has(cell)) continue;            // already part of an island
-    const stack = [cell], comp = new Set(); seen.add(cell);
+    const stack = [cell];
+    const comp = new Set();
+    seen.add(cell);
+
     while (stack.length) {
-      const cur = stack.pop(); comp.add(cur);
+      const cur = stack.pop();
+      comp.add(cur);
       const [cx, cy] = cur.split(",").map(Number);
-      for (const nb of [[cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]]) {
-        const k = nb[0]+","+nb[1];
-        if (occupied.has(k) && !seen.has(k)) { seen.add(k); stack.push(k); }
+      const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
+      for (const [nx, ny] of neighbors) {
+        const key = nx + "," + ny;
+        if (occupied.has(key) && !seen.has(key)) {
+          seen.add(key);
+          stack.push(key);
+        }
       }
     }
     comps.push(comp);
@@ -358,19 +388,28 @@ function components(occupied) {
   return comps;
 }
 
-// Double-ended queue used by the 0-1 BFS in addBridgePoles. Backed by two
-// arrays (a "front" stack and a "back" stack) so both pushFront and pushBack
-// are O(1) amortised — far faster than Array.shift() on a big grid.
+// Double-ended queue used by the 0-1 BFS in addBridgePoles.
+//
+// PERFORMANCE NOTE: this is deliberately built from two arrays — a `front`
+// stack and a `back` stack — rather than using a plain array with .shift().
+// .shift() is O(n) (it re-indexes the whole array), which would make the
+// bridge search slow on large grids. With two stacks, pushing/popping at both
+// ends is O(1) amortised. Please don't "simplify" this back to .shift().
 class Deque {
-  constructor(){ this.f=[]; this.b=[]; }
-  pushFront(x){ this.f.push(x); }
-  pushBack(x){ this.b.push(x); }
-  popFront(){ if(this.f.length) return this.f.pop();
-    if(!this.b.length) return undefined;
-    // Front empty: flip the back stack onto the front so order is preserved.
-    while(this.b.length>1) this.f.push(this.b.pop());
-    return this.b.pop(); }
-  get size(){ return this.f.length + this.b.length; }
+  constructor() {
+    this.front = [];
+    this.back = [];
+  }
+  pushFront(x) { this.front.push(x); }
+  pushBack(x)  { this.back.push(x); }
+  popFront() {
+    if (this.front.length) return this.front.pop();
+    if (!this.back.length) return undefined;
+    // Front is empty: flip the back stack onto the front so order is preserved.
+    while (this.back.length > 1) this.front.push(this.back.pop());
+    return this.back.pop();
+  }
+  get size() { return this.front.length + this.back.length; }
 }
 
 // Connect every pole island into a single electric network by adding extra
@@ -378,58 +417,96 @@ class Deque {
 // start from island 0, repeatedly find the nearest unconnected island and fill
 // in the gap cells along the shortest path to it. Returns the number of bridge
 // poles added.
-function addBridgePoles(poles, nCols, nRows, S, w, h) {
-  const half = S >> 1;
-  const occupied = new Set(poles.keys());      // cells that currently hold a pole
-  const comps = components(occupied);           // the islands to stitch together
-  if (comps.length <= 1) return 0;              // already one network, nothing to do
-  // compOf: cell -> which island index it belongs to.
+function addBridgePoles(poles, nCols, nRows, spacing, w, h) {
+  const half = spacing >> 1;
+  const occupied = new Set(poles.keys());       // cells that currently hold a pole
+  const comps = components(occupied);            // the islands to stitch together
+  if (comps.length <= 1) return 0;               // already one network, nothing to do
+
+  // compOf: cell key -> index of the island it belongs to.
   const compOf = new Map();
-  comps.forEach((c,i)=>c.forEach(cell=>compOf.set(cell,i)));
-  // `merged` = all cells already joined to island 0; mergedIdx = island indices done.
-  let merged = new Set(comps[0]); const mergedIdx = new Set([0]); let bridges = 0;
+  comps.forEach((comp, i) => comp.forEach(cell => compOf.set(cell, i)));
+
+  // `merged` = every cell already joined to island 0.
+  // `mergedIdx` = the set of island indices we've connected so far.
+  let merged = new Set(comps[0]);
+  const mergedIdx = new Set([0]);
+  let bridges = 0;
+
   // Pixel position of a cell's centre (clamped to image bounds).
-  const center = (k)=>{ const [kx,ky]=k.split(",").map(Number);
-    return [Math.min(kx*S+half, w-1), Math.min(ky*S+half, h-1)]; };
+  const center = (key) => {
+    const [kx, ky] = key.split(",").map(Number);
+    return [Math.min(kx * spacing + half, w - 1), Math.min(ky * spacing + half, h - 1)];
+  };
 
   while (mergedIdx.size < comps.length) {
-    // 0-1 BFS over the cell grid from the whole merged blob at once. Moving onto
-    // an already-occupied cell costs 0 (free, follows existing poles); crossing an
-    // empty cell costs 1 (a bridge pole we'd have to add). This finds the cheapest
-    // path — fewest new poles — to the nearest not-yet-connected island.
-    const dist = new Map(), prev = new Map(), done = new Set(), dq = new Deque();
-    for (const c of merged) { dist.set(c,0); dq.pushBack(c); }
+    // 0-1 BFS over the cell grid, starting from the whole merged blob at once.
+    // Moving onto an already-occupied cell costs 0 (free — it follows existing
+    // poles); crossing an empty cell costs 1 (a bridge pole we'd have to add).
+    // This finds the cheapest path — fewest new poles — to the nearest
+    // not-yet-connected island.
+    const dist = new Map();
+    const prev = new Map();
+    const done = new Set();
+    const queue = new Deque();
+    for (const cell of merged) {
+      dist.set(cell, 0);
+      queue.pushBack(cell);
+    }
+
     let target = null;
-    while (dq.size) {
-      const cur = dq.popFront();
-      if (done.has(cur)) continue;              // stale queue entry, skip
+    while (queue.size) {
+      const cur = queue.popFront();
+      if (done.has(cur)) continue;               // stale queue entry, skip
       done.add(cur);
       // Reached a cell belonging to an island we haven't merged yet -> stop.
-      if (compOf.has(cur) && !mergedIdx.has(compOf.get(cur))) { target = cur; break; }
+      if (compOf.has(cur) && !mergedIdx.has(compOf.get(cur))) {
+        target = cur;
+        break;
+      }
       const [cx, cy] = cur.split(",").map(Number);
-      for (const nb of [[cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]]) {
-        const [nx, ny] = nb;
-        if (nx<0||nx>=nCols||ny<0||ny>=nRows) continue;   // off the grid
-        const k = nx+","+ny, wgt = occupied.has(k) ? 0 : 1, nd = dist.get(cur)+wgt;
-        if (nd < (dist.has(k) ? dist.get(k) : Infinity)) {
-          dist.set(k, nd); prev.set(k, cur);
-          // 0-cost edges go to the front, 1-cost to the back: the 0-1 BFS trick.
-          wgt === 0 ? dq.pushFront(k) : dq.pushBack(k);
+      const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
+      for (const [nx, ny] of neighbors) {
+        if (nx < 0 || nx >= nCols || ny < 0 || ny >= nRows) continue;   // off the grid
+        const key = nx + "," + ny;
+        const weight = occupied.has(key) ? 0 : 1;
+        const newDist = dist.get(cur) + weight;
+        const known = dist.has(key) ? dist.get(key) : Infinity;
+        if (newDist < known) {
+          dist.set(key, newDist);
+          prev.set(key, cur);
+          // 0-cost edges go to the front, 1-cost to the back: the 0-1 BFS trick
+          // that keeps the queue ordered by distance without a heap.
+          if (weight === 0) queue.pushFront(key);
+          else queue.pushBack(key);
         }
       }
     }
-    if (target === null) break;                 // no reachable island left (shouldn't happen)
+    if (target === null) break;                  // no reachable island left (shouldn't happen)
+
     // Walk the `prev` chain back from the target to the merged blob, collecting
-    // the path cells.
-    let node = target; const path = [];
-    while (!merged.has(node)) { path.push(node); node = prev.get(node); }
+    // the cells along the path.
+    let node = target;
+    const path = [];
+    while (!merged.has(node)) {
+      path.push(node);
+      node = prev.get(node);
+    }
+
     // Drop a bridge pole on each empty path cell, and fold the path into `merged`.
     for (const cell of path) {
-      if (!occupied.has(cell)) { poles.set(cell, center(cell)); occupied.add(cell); bridges++; }
+      if (!occupied.has(cell)) {
+        poles.set(cell, center(cell));
+        occupied.add(cell);
+        bridges++;
+      }
       merged.add(cell);
     }
-    // Mark the reached island as merged and absorb all its cells.
-    const ti = compOf.get(target); mergedIdx.add(ti); comps[ti].forEach(c=>merged.add(c));
+
+    // Mark the reached island as merged and absorb all of its cells.
+    const targetIdx = compOf.get(target);
+    mergedIdx.add(targetIdx);
+    comps[targetIdx].forEach(cell => merged.add(cell));
   }
   return bridges;
 }
@@ -439,55 +516,73 @@ function addBridgePoles(poles, nCols, nRows, S, w, h) {
 // between adjacent poles, and returns it alongside summary stats.
 function buildBlueprint(mask, data, w, h, ptype, quality, label, connect) {
   quality = quality.toLowerCase();
-  const S = SUPPLY[ptype][quality];                          // pole spacing for this setup
-  const { poles, nCols, nRows } = placePoles(mask, w, h, S);
-  const bridges = connect ? addBridgePoles(poles, nCols, nRows, S, w, h) : 0;
+  const spacing = SUPPLY[ptype][quality];                    // pole spacing for this setup
+  const { poles, nCols, nRows } = placePoles(mask, w, h, spacing);
+  const bridges = connect ? addBridgePoles(poles, nCols, nRows, spacing, w, h) : 0;
 
-  // Clear lamps out of the tiles each pole occupies (its footprint) so lamps
-  // and poles don't overlap. `m` is a working copy of the mask.
-  const fp = FOOTPRINT[ptype], m = mask.slice();
-  for (const [cx, cy] of poles.values())
-    for (let dy = 0; dy < fp; dy++)
-      for (let dx = 0; dx < fp; dx++) {
-        const x = cx+dx, y = cy+dy;
-        if (x < w && y < h) m[y*w+x] = 0;
+  // Clear lamps out of the tiles each pole occupies (its footprint) so lamps and
+  // poles don't overlap. workingMask is a copy of the mask we can mutate freely.
+  const footprint = FOOTPRINT[ptype];
+  const workingMask = mask.slice();
+  for (const [cx, cy] of poles.values()) {
+    for (let dy = 0; dy < footprint; dy++) {
+      for (let dx = 0; dx < footprint; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < w && y < h) workingMask[y * w + x] = 0;
       }
+    }
+  }
 
-  // entity_number is Factorio's 1-based id for each entity; `n` hands them out.
+  // entity_number is Factorio's 1-based id for each entity; nextId hands them out.
   // Emit one always-on small lamp per surviving mask pixel, coloured by the
   // source pixel's RGB (normalised to 0..1).
-  const entities = []; let n = 1, lamps = 0;
-  for (let y = 0; y < h; y++)
+  const entities = [];
+  let nextId = 1;
+  let lamps = 0;
+  for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (!m[y*w+x]) continue;
-      const i = (y*w+x)*4;
-      entities.push({ entity_number: n++, name:"small-lamp", position:{x,y},
-        color:{ r:data[i]/255, g:data[i+1]/255, b:data[i+2]/255 }, always_on:true });
+      if (!workingMask[y * w + x]) continue;
+      const i = (y * w + x) * 4;
+      entities.push({
+        entity_number: nextId++,
+        name: "small-lamp",
+        position: { x, y },
+        color: { r: data[i] / 255, g: data[i + 1] / 255, b: data[i + 2] / 255 },
+        always_on: true,
+      });
       lamps++;
     }
+  }
 
-  // Emit the poles. `off` centres a multi-tile footprint on its anchor pixel
-  // (0 for medium, 0.5 for substation). poleNum remembers each pole's entity id
+  // Emit the poles. `offset` centres a multi-tile footprint on its anchor pixel
+  // (0 for medium, 0.5 for substation). poleId remembers each pole's entity id
   // by cell key so we can wire neighbours together next.
-  const name = ENTITY_NAME[ptype], off = (fp-1)/2, poleNum = new Map();
+  const name = ENTITY_NAME[ptype];
+  const offset = (footprint - 1) / 2;
+  const poleId = new Map();
   for (const [key, [cx, cy]] of poles) {
-    const ent = { entity_number:n, name, position:{ x:cx+off, y:cy+off } };
-    if (quality !== "normal") ent.quality = quality;        // normal quality is implicit
-    entities.push(ent); poleNum.set(key, n); n++;
+    const pole = { entity_number: nextId, name, position: { x: cx + offset, y: cy + offset } };
+    if (quality !== "normal") pole.quality = quality;        // normal quality is implicit
+    entities.push(pole);
+    poleId.set(key, nextId);
+    nextId++;
   }
 
   // Wire each pole to its right and down neighbour (left/up are covered by those
   // neighbours' own right/down links, so every adjacent pair is wired once).
   // A wire is [poleA id, connector, poleB id, connector].
   const wires = [];
-  for (const [key, num] of poleNum) {
+  for (const [key, id] of poleId) {
     const [kx, ky] = key.split(",").map(Number);
-    for (const nb of [(kx+1)+","+ky, kx+","+(ky+1)])
-      if (poleNum.has(nb)) wires.push([num, COPPER, poleNum.get(nb), COPPER]);
+    const neighbors = [(kx + 1) + "," + ky, kx + "," + (ky + 1)];
+    for (const neighbor of neighbors) {
+      if (poleId.has(neighbor)) wires.push([id, COPPER, poleId.get(neighbor), COPPER]);
+    }
   }
 
-  const bp = { blueprint:{ entities, wires, item:"blueprint", version:BP_VERSION, label } };
-  return { bp, stats:{ lamps, poles:poles.size, bridges } };
+  const bp = { blueprint: { entities, wires, item: "blueprint", version: BP_VERSION, label } };
+  return { bp, stats: { lamps, poles: poles.size, bridges } };
 }
 
 // Encode the blueprint the way Factorio expects: zlib-deflate the JSON, base64
@@ -495,16 +590,24 @@ function buildBlueprint(mask, data, w, h, ptype, quality, label, connect) {
 // the zlib format the game decodes.) The chunked loop turns the byte array into
 // a binary string without blowing the call-stack limit on large blueprints.
 async function deflateBase64(str) {
+  // Compress the JSON with deflate.
   const input = new TextEncoder().encode(str);
-  const cs = new CompressionStream("deflate");
-  const writer = cs.writable.getWriter();
-  writer.write(input); writer.close();
-  const buf = await new Response(cs.readable).arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = ""; const CH = 0x8000;                 // 32 KB chunks
-  for (let i = 0; i < bytes.length; i += CH)
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+CH));
-  return "0" + btoa(bin);                          // "0" = blueprint string version
+  const stream = new CompressionStream("deflate");
+  const writer = stream.writable.getWriter();
+  writer.write(input);
+  writer.close();
+  const compressed = await new Response(stream.readable).arrayBuffer();
+  const bytes = new Uint8Array(compressed);
+
+  // Turn the bytes into a binary string for btoa(). We do it in 32 KB chunks
+  // because String.fromCharCode(...allBytes) would overflow the call stack on
+  // large blueprints — passing one big array as arguments has a length limit.
+  let binary = "";
+  const CHUNK = 0x8000;                            // 32 KB
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return "0" + btoa(binary);                       // "0" = blueprint string version byte
 }
 
 /* ===========================================================================
